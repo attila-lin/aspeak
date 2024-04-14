@@ -3,6 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use bytes::Bytes;
 use hyper::Uri;
 use log::debug;
 use reqwest::Url;
@@ -11,10 +12,10 @@ use tokio::{
     net::TcpStream,
 };
 
+use crate::errors::{ConnectError, ConnectErrorKind};
+
 use tokio_socks::tcp::Socks5Stream;
 use tokio_tungstenite::{tungstenite::client::IntoClientRequest, MaybeTlsStream, WebSocketStream};
-
-use crate::errors::{ConnectError, ConnectErrorKind};
 
 pub(crate) type WsStream = WebSocketStream<MaybeTlsStream<MaybeSocks5Stream<TcpStream>>>;
 
@@ -168,13 +169,13 @@ pub(crate) async fn connect_via_http_proxy(
     debug!("Using http proxy: {proxy_addr}");
     let authority = ws_req.uri().host_colon_port()?;
     let proxy_server = proxy_addr.host_colon_port()?;
-    let stream = TcpStream::connect(proxy_server).await?;
+    let stream = hyper_util::rt::TokioIo::new(TcpStream::connect(proxy_server).await?);
 
-    let (mut request_sender, conn) = hyper::client::conn::handshake(stream).await?;
+    let (mut request_sender, conn) = hyper::client::conn::http1::handshake(stream).await?;
 
     let conn = tokio::spawn(conn.without_shutdown());
     let connect_req = hyper::Request::connect(&authority)
-        .body(hyper::Body::empty())
+        .body(http_body_util::Empty::<Bytes>::new())
         .map_err(|e| ConnectError {
             kind: ConnectErrorKind::RequestConstruction,
             source: Some(e.into()),
@@ -199,7 +200,8 @@ pub(crate) async fn connect_via_http_proxy(
                 kind: ConnectErrorKind::Connection,
                 source: Some(e.into()),
             })??
-            .io,
+            .io
+            .into_inner(),
     );
     let (ws_stream, _) = tokio_tungstenite::client_async_tls(ws_req, tcp).await?;
     Ok(ws_stream)

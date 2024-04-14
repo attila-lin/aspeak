@@ -42,25 +42,25 @@ impl SpeechService {
             .map(|opts| {
                 Ok::<TextOptions, PyErr>(TextOptions {
                     pitch: opts
-                        .get_item("pitch")
+                        .get_item("pitch")?
                         .map(|p| p.extract())
                         .transpose()?
                         .map(parse_pitch)
                         .transpose()?,
                     rate: opts
-                        .get_item("rate")
+                        .get_item("rate")?
                         .map(|r| r.extract())
                         .transpose()?
                         .map(parse_rate)
                         .transpose()?,
                     voice: {
                         if let Some(voice) =
-                            opts.get_item("voice").map(|p| p.extract()).transpose()?
+                            opts.get_item("voice")?.map(|p| p.extract()).transpose()?
                         {
                             Cow::Borrowed(voice)
                         } else {
                             let locale = opts
-                                .get_item("locale")
+                                .get_item("locale")?
                                 .map(|l| l.extract())
                                 .transpose()?
                                 .unwrap_or("en-US");
@@ -74,17 +74,17 @@ impl SpeechService {
                     },
                     rich_ssml_options: {
                         let style = opts
-                            .get_item("style")
+                            .get_item("style")?
                             .map(|s| s.extract())
                             .transpose()?
                             .map(Cow::Borrowed);
                         let style_degree = opts
-                            .get_item("style_degree")
+                            .get_item("style_degree")?
                             .map(|l| l.extract())
                             .transpose()?
                             .map(parse_style_degree)
                             .transpose()?;
-                        let role = opts.get_item("role").map(|r| r.extract()).transpose()?;
+                        let role = opts.get_item("role")?.map(|r| r.extract()).transpose()?;
                         if style.is_some() || style_degree.is_some() || role.is_some() {
                             Some(crate::types::RichSsmlOptions {
                                 style,
@@ -112,7 +112,9 @@ impl SpeechService {
             .build()?;
 
         let mode = options
-            .and_then(|dict| dict.get_item("mode"))
+            .map(|dict| dict.get_item("mode"))
+            .transpose()?
+            .flatten()
             .map(|e| e.extract::<&str>())
             .transpose()?
             .unwrap_or("rest");
@@ -125,14 +127,18 @@ impl SpeechService {
         }
 
         let endpoint = if let Some(endpoint) = options
-            .and_then(|dict| dict.get_item("endpoint"))
+            .map(|dict| dict.get_item("endpoint"))
+            .transpose()?
+            .flatten()
             .map(|e| e.extract::<&str>())
             .transpose()?
         {
             Cow::Borrowed(endpoint)
         } else {
             options
-                .and_then(|dict| dict.get_item("region"))
+                .map(|dict| dict.get_item("region"))
+                .transpose()?
+                .flatten()
                 .map(|e| e.extract::<&str>())
                 .transpose()?
                 .map(|r| match mode {
@@ -141,22 +147,32 @@ impl SpeechService {
                     _ => unreachable!(),
                 })
                 .map(Cow::Owned)
-                .ok_or_else(|| PyValueError::new_err("No endpoint or region is specified!".to_string()))?
+                .ok_or_else(|| {
+                    PyValueError::new_err("No endpoint or region is specified!".to_string())
+                })?
         };
         let key: Option<String> = options
-            .and_then(|dict| dict.get_item("key"))
+            .map(|dict| dict.get_item("key"))
+            .transpose()?
+            .flatten()
             .map(|k| k.extract())
             .transpose()?;
         let token: Option<String> = options
-            .and_then(|dict| dict.get_item("token"))
+            .map(|dict| dict.get_item("token"))
+            .transpose()?
+            .flatten()
             .map(|k| k.extract())
             .transpose()?;
         let proxy: Option<String> = options
-            .and_then(|dict| dict.get_item("proxy"))
+            .map(|dict| dict.get_item("proxy"))
+            .transpose()?
+            .flatten()
             .map(|p| p.extract())
             .transpose()?;
         let headers = options
-            .and_then(|dict| dict.get_item("headers"))
+            .map(|dict| dict.get_item("headers"))
+            .transpose()?
+            .flatten()
             .map(|h| h.downcast::<PySequence>())
             .transpose()?;
         let headers = if let Some(headers) = headers {
@@ -223,7 +239,10 @@ impl SpeechService {
             .runtime
             .block_on(self.synthesizer.borrow_mut().as_mut().process_ssml(ssml))?;
         if let Some(output) = options
-            .and_then(|d| d.get_item("output").map(|f| f.extract::<&str>()))
+            .map(|d| d.get_item("output"))
+            .transpose()?
+            .flatten()
+            .map(|f| f.extract::<&str>())
             .transpose()?
         {
             let mut file = File::create(output)?;
@@ -260,7 +279,10 @@ impl SpeechService {
                 &Self::parse_text_options(options)?.unwrap_or_default(),
             ))?;
         if let Some(output) = options
-            .and_then(|d| d.get_item("output").map(|f| f.extract::<&str>()))
+            .map(|d| d.get_item("output"))
+            .transpose()?
+            .flatten()
+            .map(|f| f.extract::<&str>())
             .transpose()?
         {
             let mut file = File::create(output)?;
